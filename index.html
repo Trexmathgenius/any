@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Tale Forge — step inside any story</title>
+  <meta name="description" content="Type any story, of any length, and play it as a 2D top-down RPG: your characters, your places, your plot. Leave it blank for a random adventure.">
+  <meta name="theme-color" content="#0d0b16">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%230d0b16'/%3E%3Cpath d='M11 2l3 0 0 3-6 6-2-1-1-2z' fill='%23e8eef4'/%3E%3Cpath d='M4 9l3 3-1 1-1-1-2 2-1-1 2-2-1-1z' fill='%23ffcf5a'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="home">
+    <div class="wrap">
+      <header class="masthead">
+        <div class="logo" aria-label="Tale Forge"><span class="t1">TALE</span><span class="t2">FORGE</span></div>
+        <p class="tag">Write any story. Then step inside it.</p>
+      </header>
+
+      <section class="card shared" id="shared" hidden>
+        <div><span class="kicker">Someone shared a world with you</span><b id="shared-title"></b></div>
+        <button id="play-shared" class="btn primary">▶ Play it</button>
+      </section>
+
+      <section class="card cont" id="continue-card" hidden>
+        <div><span class="kicker">Saved game</span><b id="cont-title"></b><span id="cont-meta" class="meta"></span></div>
+        <button id="continue" class="btn">Continue ▶</button>
+      </section>
+
+      <section class="card forge">
+        <div class="lblrow"><label for="story" class="lbl">Your story</label><span id="count" class="meta"></span></div>
+        <textarea id="story" spellcheck="true" placeholder="Paste or type anything: a one-line idea, a fairy tale, a D&amp;D campaign, a chapter of your novel…
+
+Example: Once upon a time a little girl named Rosa lived in a village by the forest. One day her grandfather asked her to bring him his lantern from the old lighthouse…"></textarea>
+        <div class="chips" id="examples"><span class="meta">Try:</span></div>
+        <div class="actions">
+          <button id="forge" class="btn primary">⚒ Play my story</button>
+          <button id="random" class="btn">🎲 Surprise me</button>
+          <button id="clear" class="btn ghost" type="button">Clear</button>
+        </div>
+        <div id="status" class="status" hidden></div>
+      </section>
+
+      <section class="how">
+        <div><span class="n">1</span><b>Write anything</b><p>A one-line idea, a fairy tale, a diary entry, a chapter of your novel. Or leave it blank and get a brand-new story.</p></div>
+        <div><span class="n">2</span><b>Step inside it</b><p>Your people become characters who say your lines. Your places become a world you can walk through, rooms and all. Every event becomes a chapter you play.</p></div>
+        <div><span class="n">3</span><b>Live it out</b><p>Fetch, deliver, rescue, explore and fight your way to your own ending. Saves in your browser. Share your story as a link.</p></div>
+      </section>
+      <footer>Tale Forge · no account, no API key, nothing to install · works offline in your browser · keyboard and touch controls</footer>
+    </div>
+  </main>
+
+  <div id="game" class="hidden">
+    <canvas id="screen"></canvas>
+    <div id="touch">
+      <div id="stick-zone"></div>
+      <div id="stick"><div id="knob"></div></div>
+      <button class="tb atk" data-act="attack" aria-label="Attack">⚔</button>
+      <button class="tb use" data-act="interact" aria-label="Talk or use">E</button>
+      <button class="tb pot" data-act="potion" aria-label="Potion">♥</button>
+      <button class="tb sm map" data-act="map" aria-label="Map">M</button>
+      <button class="tb sm men" data-act="menu" aria-label="Menu">☰</button>
+    </div>
+    <div id="dialog" class="panel hidden" role="dialog" aria-live="polite">
+      <div id="dlg-name"></div>
+      <div id="dlg-text"></div>
+      <div id="dlg-choices"></div>
+      <div id="dlg-next" class="hidden">▼</div>
+    </div>
+    <div id="menu" class="panel hidden" role="dialog">
+      <h2 id="menu-title"></h2>
+      <div id="menu-sub"></div>
+      <div id="menu-body"></div>
+      <div id="menu-items"></div>
+    </div>
+    <div id="mapview" class="hidden">
+      <div class="mapbox"><div id="mapname"></div><canvas id="bigmap"></canvas><div class="fine">Tap or press M to close</div></div>
+    </div>
+    <div id="toasts" class="toastbox" aria-live="polite"></div>
+  </div>
+  <div id="hometoasts" class="toastbox" aria-live="polite"></div>
+
+  <script src="rng.js"></script>
+  <script src="themes.js"></script>
+  <script src="library.js"></script>
+  <script src="story.js"></script>
+  <script src="worldgen.js"></script>
+  <script src="art.js"></script>
+  <script src="game.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
