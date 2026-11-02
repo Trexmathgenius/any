@@ -121,6 +121,8 @@
             if (!this.cancelAI) { step('The AI could not run here, so the quick reader takes over.', 0.5, String(e.message || e).slice(0, 160)); await new Promise((r) => setTimeout(r, 1200)); }
           }
         }
+        // the AI has done its job: free its memory now, before the game starts
+        if (useAI) RPG.AI.unload().catch(() => {});
         if (useWeb) {
           step('Looking things up on Wikipedia…', 0.88, 'People, places and things from your story.');
           const r = await RPG.Web.learn(read ? read.script : clean, { hints: read && read.hints });
@@ -137,6 +139,7 @@
         RPG.Game.start(spec, null, clean);
       } catch (e) {
         console.error(e);
+        if (RPG.AI) RPG.AI.unload().catch(() => {});
         work.classList.add('hidden');
         st.hidden = false; st.className = 'status err'; st.textContent = 'Something in that text tripped up the story reader. Try rewording a sentence or two.';
       }

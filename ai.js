@@ -65,7 +65,12 @@
       })();
       try { return await this.loading; } finally { this.loading = null; }
     },
-    async unload() { if (this.engine && this.engine.unload) await this.engine.unload(); this.engine = null; },
+    // give the graphics-card memory back; the downloaded files stay cached, so the next story reloads quickly
+    async unload() {
+      const e = this.engine; this.engine = null;
+      try { if (e && e.interruptGenerate) e.interruptGenerate(); } catch (x) {}
+      try { if (e && e.unload) await e.unload(); } catch (x) {}
+    },
 
     async chat(messages, opts = {}) {
       const req = { messages, temperature: opts.temperature ?? 0.3, max_tokens: opts.max_tokens || 900 };
