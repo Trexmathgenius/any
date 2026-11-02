@@ -15,12 +15,13 @@
   const uniq = (a) => [...new Set(a)];
   function singular(w) {
     if (w.length <= 3) return w;
-    if (/(ss|us|is)$/.test(w) || /^(glasses|scissors|pants|trousers|jeans|shorts|goggles|spectacles|binoculars|pliers|tongs|clothes|news|series|species)$/.test(w)) return w;
+    if (/(ss|us|is)$/.test(w) || /^(glasses|scissors|pants|trousers|jeans|shorts|goggles|spectacles|binoculars|pliers|tongs|clothes|news|series|species|eaves)$/.test(w)) return w;
     if (w === 'mice') return 'mouse';
     if (w === 'geese') return 'goose';
     if (w === 'children') return 'child';
     if (w === 'people') return 'person';
-    if (w.endsWith('ves') && !/(eaves|ooves)$/.test(w)) return w.slice(0, -3) + 'f';
+    if (/^(knives|wives|lives|midwives|housewives)$/.test(w)) return w.slice(0, -3) + 'fe';
+    if (/(wolves|leaves|elves|halves|shelves|thieves|loaves|dwarves|scarves|calves|selves|wharves|sheaves|hooves|werewolves)$/.test(w)) return w.slice(0, -3) + 'f';
     if (/^(zombies|cookies|movies|pies|ties|brownies|genies|pixies|goalies|rookies|hoodies|collies|calories|prairies|lies|selfies|smoothies|aunties|cuties|veggies|sweeties|birdies|boogies|magpies|bogies)$/.test(w)) return w.slice(0, -1);
     if (w.endsWith('ies')) return w.slice(0, -3) + 'y';
     if (/(ches|shes|sses|xes)$/.test(w)) return w.slice(0, -2);
@@ -136,25 +137,69 @@
   const META = /^(please\s+|ok(ay)?,?\s+|so,?\s+|hey,?\s+)?(write|make|create|generate|build|design|give me|i want|i'd like|i would like|can you|could you|let'?s make|the game|this game|the player should|include|add a|it should|there should be|set it|have it|turn this|thanks|thank you)\b/i;
 
   // ======================= the analyzer =======================
+  // "## The Storm", "Chapter 3: The Storm", "CHAPTER TWO", "Part II", "***"
+  const HEAD_RE = /^\s*(?:#{1,6}\s*(.+?)\s*#*|(?:chapter|part|book|act|episode)\s+(?:\d+|[ivxlc]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\b\s*[:.\-–—]?\s*(.*?)|(\*\s*\*\s*\*|-{3,}|~{3,}|_{3,}))\s*$/i;
+  function blocksOf(raw) {
+    const lines = raw.split('\n');
+    const heads = lines.filter((l) => HEAD_RE.test(l) && l.trim().length < 90).length;
+    if (heads < 2) return null;
+    const blocks = [];
+    let cur = { title: '', lines: [] };
+    for (const l of lines) {
+      const m = l.trim().length < 90 && l.match(HEAD_RE);
+      if (m) { if (cur.lines.join(' ').trim() || cur.title) blocks.push(cur); cur = { title: m[3] ? '' : String(m[1] || m[2] || '').replace(/^[#*\s]+|[*\s]+$/g, '').trim(), lines: [] }; continue; }
+      cur.lines.push(l);
+    }
+    blocks.push(cur);
+    return blocks.filter((b) => b.lines.join(' ').trim());
+  }
+
+  // "Café", "Zoë", "Señor" -> "Cafe", "Zoe", "Senor", so accented words aren't cut in half
+  const LIGS = { 'æ': 'ae', 'Æ': 'Ae', 'œ': 'oe', 'Œ': 'Oe', 'ß': 'ss', 'ø': 'o', 'Ø': 'O', 'ł': 'l', 'Ł': 'L', 'đ': 'd', 'Đ': 'D', 'þ': 'th', 'ð': 'd' };
+  const fold = (x) => { let t = String(x == null ? '' : x); if (!/[^\x00-\x7f]/.test(t)) return t; if (t.normalize) t = t.normalize('NFD').replace(/[\u0300-\u036f]/g, ''); return t.replace(/[æÆœŒßøØłŁđĐþð]/g, (c) => LIGS[c]); };
+
   function analyze(text, seed, opts = {}) {
     const rng = new RNG(seed);
+    let hints = opts.hints || {};
+    try { if (/[^\x00-\x7f]/.test(JSON.stringify(hints))) hints = JSON.parse(fold(JSON.stringify(hints))); } catch (e) {}
+    text = fold(text);
+    const wordsOf = (x) => String(x || '').split(/\s+/).map((w) => w.replace(/[^A-Za-z'’-]/g, '').replace(/['’]s?$/, '')).filter(Boolean);
+    const hintPeople = new Set([...(hints.characters || []).flatMap((h) => wordsOf(h.name)), ...wordsOf(hints.hero)]);
+    const hintThings = new Set([...(hints.places || []), ...(hints.items || [])].flatMap((h) => wordsOf(h.name)).filter((w) => /^[A-Z]/.test(w) && !hintPeople.has(w)));
     let raw = String(text || '').replace(/\r/g, '').trim();
     let source = raw ? 'text' : 'random';
     let titleLine = '';
+    // a single "# Title" line on top of "## chapters" is the story's title
+    { const m = raw.match(/^#\s+([^#\n]{1,60})\n/); if (m && /\n##\s/.test(raw)) { titleLine = m[1].trim(); raw = raw.slice(m[0].length).trim(); } }
+    const blocks = blocksOf(raw);
+    // a short first line before the first chapter heading is the title
+    if (blocks && !blocks[0].title) { const t = blocks[0].lines.join(' ').trim(); if (t.length <= 60 && !/[.!?,;:"”]$/.test(t) && !t.includes('\n')) { titleLine = titleLine || t.replace(/^title:\s*/i, ''); blocks.shift(); } }
     const firstLine = raw.split('\n')[0].trim();
-    if (raw.includes('\n') && firstLine.length <= 60 && !/[.!?,;:"”]$/.test(firstLine) && raw.slice(raw.indexOf('\n')).trim().length > 40) {
+    if (!blocks && raw.includes('\n') && firstLine.length <= 60 && !/[.!?,;:"”]$/.test(firstLine) && raw.slice(raw.indexOf('\n')).trim().length > 40) {
       titleLine = firstLine.replace(/^#+\s*/, '').replace(/^title:\s*/i, '');
       raw = raw.slice(raw.indexOf('\n') + 1).trim();
     }
     // SHOUTED TEXT: read it in sentence case so every word isn't mistaken for a name
     { const up = (raw.match(/[A-Z]/g) || []).length, lo = (raw.match(/[a-z]/g) || []).length; if (up > 20 && up > lo * 2) raw = raw.toLowerCase().replace(/(^|[.!?]\s+|\n\s*)([a-z])/g, (m, a, b) => a + b.toUpperCase()).replace(/\bi\b/g, 'I'); }
     const lowerAll = raw.toLowerCase();
-    const theme = pickTheme(lowerAll, rng, opts.theme);
-    let sentences = splitSentences(raw).filter((s) => !META.test(s));
+    const theme = pickTheme(lowerAll, rng, opts.theme || hints.theme);
+    let sentences;
+    const heads = new Map(); // sentence index -> chapter title written in the text
+    const blockOf = [];
+    if (blocks) {
+      sentences = [];
+      blocks.forEach((b, bi) => {
+        const ss = splitSentences(b.lines.join('\n')).filter((x) => !META.test(x));
+        if (!ss.length) return;
+        heads.set(sentences.length, b.title || '');
+        for (const x of ss) { sentences.push(x); blockOf.push({ bi, n: ss.length }); }
+      });
+    } else sentences = splitSentences(raw).filter((s) => !META.test(s));
     const wordCount = (raw.match(/[A-Za-z]+/g) || []).length;
     const hasVerb = sentences.some((s) => tokenize(s).some((t) => VERB_OF[t.l] || /ed$/.test(t.l)));
-    let premise = '', foeHint = null;
+    let premise = '', foeHint = hints.villain ? String(hints.villain).toLowerCase() : null;
     if (!raw) { sentences = generateStory(rng, theme, {}); source = 'random'; }
+    else if (blocks) { /* the text is already split into chapters */ }
     else if (isIdea(raw, wordCount, hasVerb, sentences)) {
       // an idea ("a cat who wants to be a knight", "pirates"): grow a whole plot around it
       premise = raw.replace(/\s+/g, ' ').replace(/[.!?]+$/, '');
@@ -202,12 +247,12 @@
       const found = [];
       const re1 = new RegExp(`\\b(${cueAny})\\s+of\\s+(the\\s+)?((?:[A-Z][\\w'’-]+)(?:\\s+[A-Z][\\w'’-]+){0,2})`, 'g');
       while ((m = re1.exec(s))) { if (STOP.has(m[3])) continue; found.push({ name: /^[A-Z]/.test(m[1]) ? `${cap(m[1])} of ${m[2] ? 'the ' : ''}${m[3]}` : m[3], cue: m[1].toLowerCase(), idx: m.index }); }
-      const re2 = new RegExp(`\\b((?:[A-Z][\\w'’-]+\\s+){1,3})(${cueCap})\\b`, 'g');
+      const re2 = new RegExp(`\\b((?:[A-Z][\\w'’-]+\\s+){1,3})(${cueCap})(s|es)?\\b`, 'g');
       while ((m = re2.exec(s))) {
         const pre = m[1].trim().split(/\s+/);
         while (pre.length && (STOP.has(pre[0]) || TITLE_SET.has(pre[0]))) pre.shift();
         if (!pre.length) continue;
-        found.push({ name: `${pre.join(' ')} ${m[2]}`, cue: m[2].toLowerCase(), idx: m.index });
+        found.push({ name: `${pre.join(' ')} ${m[2]}${m[3] || ''}`, cue: m[2].toLowerCase(), idx: m.index });
       }
       const re3 = /\b(Castle|Fort|Mount|Mt|Port|Camp|Lake|Isle|Planet|Tower|Temple|Station|Base|Colony)\.?\s+([A-Z][\w'’-]+)/g;
       while ((m = re3.exec(s))) { if (STOP.has(m[2])) continue; const cue = { Mt: 'mountain', Mount: 'mountain', Fort: 'fortress', Isle: 'island', Planet: 'island' }[m[1]] || m[1].toLowerCase(); found.push({ name: `${m[1]} ${m[2]}`, cue, idx: m.index }); }
@@ -240,6 +285,7 @@
       const ts = tokenize(s);
       ts.forEach((t, k) => {
         if (!/^[A-Z]/.test(t.w) || t.w.length < 2 || t.w === 'I') return;
+        if (VERB_OF[t.l] && ts[k + 1] && /^(me|us|him|her|them|it|the|a|an|your|my|this|that|those|these|out|up|down|away|back)$/.test(ts[k + 1].l)) return;
         const prevRaw = s.slice(0, t.i).trim();
         const atStart = k === 0 || /[:"“]$/.test(prevRaw);
         const info = capInfo.get(t.w) || { mid: 0, start: 0, first: si, afterTitle: '' };
@@ -284,13 +330,17 @@
       if ([...epithets.values()].includes(w) && !epithets.has(w)) continue;
       if (artifactWords.has(w) && !info.afterTitle) continue;
       if (capWordIsCommon(w) && !info.afterTitle) continue;
+      if (!info.afterTitle && !hintPeople.has(w)) {
+        const all = (flat.match(new RegExp(`(\\S+\\s+)?${reEsc(w)}\\b(\\s+\\S+)?`, 'g')) || []);
+        if (all.length && all.every((x) => /^the\s/i.test(x) && !/\s(King|Queen|Lord|Lady|said|says|asked|replied|whispered|shouted)\b/.test(x))) { artifactWords.add(w); continue; }
+      }
       // a name that only ever starts a sentence still counts when a verb follows it ("Tom found a key.")
       const knownName = LIB.NAMES.f.includes(w) || LIB.NAMES.m.includes(w);
       const startsAction = info.start >= 1 && (() => { const m = flat.match(new RegExp(`(?:^|[.!?]\\s+)${reEsc(w)}\\s+([a-z]+)`)); return m && (VERB_OF[m[1]] || /ed$/.test(m[1]) || /^(was|is|had|has|could|would|will|can|went|ran|saw|met|took|made|came|found|got|lived|loved|wanted|knew)$/.test(m[1])); })();
       if (!(info.mid > 0 || info.start > 1 || info.afterTitle || knownName || startsAction)) continue;
       const pc = placePrepCount(w);
       const total = (flat.match(new RegExp(`\\b${reEsc(w)}\\b`, 'g')) || []).length;
-      if (!info.afterTitle && (pc >= Math.max(1, Math.ceil(total * 0.5)) || (placeLikeSuffix.test(w) && pc >= 1))) { namedPlaces.push({ name: w, first: info.first }); continue; }
+      if (!info.afterTitle && !hintPeople.has(w) && (pc >= Math.max(1, Math.ceil(total * 0.5)) || (placeLikeSuffix.test(w) && pc >= 1))) { namedPlaces.push({ name: w, first: info.first }); continue; }
       const disp = info.afterTitle ? `${info.afterTitle} ${w}` : w;
       const c = newChar('name:' + w, { name: w, display: disp, named: true, title: info.afterTitle || '' });
       c.aliases.add(w);
@@ -355,7 +405,7 @@
       });
     });
     // link roles to names: "a fox named Pip", "Rose, the old baker", "the baker Rose", "Grandma Rose", "Pip was a fox"
-    const live = (c) => (c && c.merged ? live(c.merged) : c);
+    const live = (c) => (c && c.merged ? live(c.merged) : c && c.notPerson ? null : c);
     for (const c of chars.filter((x) => x.named && !x.isHero)) {
       const full = reEsc(c.name);
       const nm = reEsc(c.name.split(' ').pop());
@@ -396,6 +446,42 @@
       // "King Aldric" and "the king" are the same person
       if (c.title) { const tl = c.title.toLowerCase(); for (const rc of chars.filter((x) => !x.named && !x.isHero && !x.merged && x.roleWord === tl)) { rc.merged = c; rc.adjs.forEach((a) => c.adjs.add(a)); } if (!c.role && lookupRole(tl)) { c.role = lookupRole(tl); c.roleWord = tl; } }
     }
+    {
+      const re = /\b([A-Z][a-z]+)\s+(King|Queen|Lord|Lady|Emperor|Empress|Boss|Chief|Witch|Wizard|Knight|General)\b/g;
+      const seen = new Map();
+      let m;
+      while ((m = re.exec(flat))) {
+        const w = m[1], l = w.toLowerCase();
+        if (STOP.has(w) || TITLE_SET.has(w) || namedPlaceWords.has(w) || chars.some((c) => c.named && (c.name === w || c.aliases.has(w) || c.name === `${w} ${m[2]}`))) continue;
+        if (!(lookupAnimal(l) || MONSTERS[l] || lookupObject(l) || COMPOUND_MOD.has(l) || LIB.COLORS[l])) continue;
+        seen.set(`${w} ${m[2]}`, (seen.get(`${w} ${m[2]}`) || 0) + 1);
+      }
+      for (const [k] of seen) {
+        const [w, t] = k.split(' ');
+        const c = newChar('name:' + k, { name: k, display: k, named: true });
+        c.aliases.add(k);
+        const tl = t.toLowerCase(), a = lookupAnimal(w.toLowerCase());
+        if (lookupRole(tl)) { c.role = lookupRole(tl); c.roleWord = tl; }
+        if (a) { c.animal = a; c.animalWord = w.toLowerCase(); c.kind = 'animal'; c.crowned = /^(king|queen|emperor|empress|lord|lady)$/.test(tl); }
+        c.creatureTitle = true;
+        for (const rc of chars.filter((x) => x !== c && !x.named && !x.isHero && !x.merged && (x.roleWord === tl || x.animalWord === w.toLowerCase()))) { rc.merged = c; rc.adjs.forEach((a2) => c.adjs.add(a2)); }
+      }
+    }
+    for (const c of chars.filter((x) => x.named && !x.isHero && !x.merged && x.name.includes(' '))) {
+      const last = c.name.split(' ').pop();
+      if (!/^(King|Queen|Lord|Lady|Prince|Princess|Emperor|Empress|Boss|Chief|Captain|Witch|Wizard|Knight|General)$/.test(last)) continue;
+      const tl = last.toLowerCase();
+      if (!c.role && lookupRole(tl)) { c.role = lookupRole(tl); c.roleWord = tl; }
+      for (const rc of chars.filter((x) => !x.named && !x.isHero && !x.merged && x.roleWord === tl)) { rc.merged = c; rc.adjs.forEach((a) => c.adjs.add(a)); }
+    }
+    for (const c of chars.filter((x) => x.named && !x.isHero && !x.merged && !x.name.includes(' '))) {
+      const m = flat.match(new RegExp(`\\b${reEsc(c.name)}\\s+(King|Queen|Lord|Lady|Prince|Princess|Emperor|Empress|Boss|Chief|Captain|Witch|Wizard|Knight|General)\\b`));
+      if (!m) continue;
+      const full = `${c.name} ${m[1]}`, tl = m[1].toLowerCase();
+      c.display = full; c.name = full; c.aliases.add(full);
+      if (!c.role && lookupRole(tl)) { c.role = lookupRole(tl); c.roleWord = tl; }
+      for (const rc of chars.filter((x) => !x.named && !x.isHero && !x.merged && x.roleWord === tl)) { rc.merged = c; rc.adjs.forEach((a) => c.adjs.add(a)); }
+    }
     if (hero) {
       const m = raw.match(/\b(?:I am|I'm|I was|you are|you're|you were)\s+(?:a|an|the)\s+((?:[a-z-]+\s+){0,3}?)([a-z]+)\b/);
       if (m) {
@@ -405,17 +491,47 @@
         (m[1] || '').trim().split(/\s+/).filter(Boolean).forEach((a) => hero.adjs.add(a.toLowerCase()));
       }
     }
+    // the AI's cast list: "Brenna = old blacksmith (friend)", fills in what the text leaves implicit
+    const hintSide = new Map();
+    const headNoun = (desc, look) => { const ws = String(desc || '').toLowerCase().match(/[a-z]+/g) || []; for (let q = ws.length - 1; q >= 0; q--) if (look(ws[q])) return { word: singular(ws[q]), adjs: ws.slice(0, q) }; return null; };
+    {
+      for (const c of chars) if (c.named && !c.isHero && !c.merged && hintThings.has(c.name)) c.notPerson = true;
+    }
+    for (const h of hints.characters || []) {
+      if (!h.name || !new RegExp(`\\b${reEsc(h.name)}\\b`, 'i').test(flat)) continue;
+      let c = chars.find((x) => !x.merged && (x.name === h.name || x.aliases.has(h.name) || x.display === h.name));
+      if (!c) {
+        const first = h.name.split(' ')[0];
+        c = chars.find((x) => !x.merged && x.named && (x.aliases.has(first) || x.name === first));
+      }
+      if (!c && /^[A-Z]/.test(h.name)) { c = newChar('name:' + h.name, { name: h.name, display: h.name, named: true }); c.aliases.add(h.name); }
+      if (!c || c.isHero) continue;
+      if (h.name.includes(' ') && c.name !== h.name && h.name.split(' ').includes(c.name)) {
+        c.aliases.add(h.name); c.name = h.name; c.display = h.name;
+        for (const w of h.name.split(' ')) for (const x of chars) if (x !== c && !x.merged && !x.isHero && (x.name === w || (!x.named && x.roleWord === w.toLowerCase()))) { x.merged = c; x.adjs.forEach((a) => c.adjs.add(a)); }
+      }
+      { const lw = h.name.split(' ').pop(); if (h.name.includes(' ') && /^(King|Queen|Lord|Lady|Prince|Princess|Emperor|Empress|Boss|Chief|Captain|Witch|Wizard|Knight|General|Doctor|Professor)$/.test(lw)) for (const x of chars) if (x !== c && !x.named && !x.isHero && !x.merged && x.roleWord === lw.toLowerCase()) { x.merged = c; x.adjs.forEach((a) => c.adjs.add(a)); } }
+      const r = headNoun(h.is, (w) => lookupRole(w) || lookupAnimal(w));
+      if (r && !c.role && !c.animal) {
+        const role = lookupRole(r.word), animal = lookupAnimal(r.word);
+        if (animal) { c.animal = animal; c.animalWord = r.word; c.kind = 'animal'; }
+        else if (role) { c.role = role; c.roleWord = r.word; c.kind = role.k === 'robot' ? 'robot' : role.k === 'ghost' ? 'ghost' : role.k === 'monster' ? 'monster' : 'person'; }
+        r.adjs.forEach((a) => { if (!FUNC.has(a)) c.adjs.add(a); });
+      }
+      hintSide.set(c, h.side);
+      if (h.lines && h.lines.length) c.hintLines = h.lines;
+    }
     // mentions
     const sentChars = sentences.map(() => new Set());
     const subjectOf = sentences.map(() => null);
     for (const c of chars) {
-      if (c.merged || !c.named) continue;
+      if (c.merged || !c.named || c.notPerson) continue;
       const re = new RegExp(`\\b(${[...c.aliases].map(reEsc).join('|')})\\b`);
       sentences.forEach((s, si) => { const m = s.match(re); if (m) { sentChars[si].add(c); if (m.index < 14) subjectOf[si] = subjectOf[si] || c; } });
     }
-    for (const { si, k, char } of roleRefs) { const c = live(char); sentChars[si].add(c); if (k <= 2) subjectOf[si] = subjectOf[si] || c; }
+    for (const { si, k, char } of roleRefs) { const c = live(char); if (!c) continue; sentChars[si].add(c); if (k <= 2) subjectOf[si] = subjectOf[si] || c; }
     if (hero && pov !== 'third') sentences.forEach((s, si) => { const ts = outsideQ[si]; if (ts.some((t) => (pov === 'first' ? (t.w === 'I' || /^(me|my|myself|we|us|our)$/.test(t.l)) : /^(you|your|yourself)$/.test(t.l)))) { sentChars[si].add(hero); if (ts[0] && (ts[0].w === 'I' || /^(you|we)$/.test(ts[0].l))) subjectOf[si] = hero; } });
-    const liveChars = () => chars.filter((c) => !c.merged);
+    const liveChars = () => chars.filter((c) => !c.merged && !c.notPerson);
     for (const c of liveChars()) sentences.forEach((s, si) => { if (sentChars[si].has(c)) { c.mentions.add(si); c.first = Math.min(c.first, si); if (subjectOf[si] === c) c.subj++; } });
 
     // ---------- who is doing things in each sentence ----------
@@ -452,12 +568,16 @@
         if (subjectAt[si] !== c && pos !== undefined && pos > firstVerbPos[si] && toks[si].slice(0, pos).some((t) => (VERB_OF[t.l] || []).includes('fight'))) v += 3;
       }
       if ((c.role && c.role.hostile) || (c.animal && c.animal.hostile)) v += 2;
+      // "the Gull King", "the Rat Queen", "the Goblin King": story titles like these are almost always the foe
+      if (c.creatureTitle) v += 3;
       for (const a of c.adjs) if (LIB.MOOD_WORDS[a] === 'evil') v += 4;
+      if (hintSide.get(c) === 'enemy') v += 6;
+      if (hintSide.get(c) === 'friend') v -= 8;
       return v;
     };
     // ---------- the villain ----------
     let villain = null, vbest = 2;
-    if (foeHint) { const fw = foeHint.split(' '); const fc = liveChars().find((c) => c.mentions.size && (String(c.display).toLowerCase() === foeHint || (c.roleWord === fw[fw.length - 1] && [...c.adjs].some((a) => fw.includes(a))))); if (fc) { villain = fc; vbest = 99; } }
+    if (foeHint) { const fw = foeHint.split(' '); const fc = liveChars().find((c) => c.mentions.size && !c.isHero && (String(c.display).toLowerCase() === foeHint || String(c.name).toLowerCase() === foeHint || [...c.aliases].some((a) => a.toLowerCase() === foeHint || fw.includes(a.toLowerCase())) || (c.roleWord === fw[fw.length - 1] && [...c.adjs].some((a) => fw.includes(a))))); if (fc) { villain = fc; vbest = 99; } }
     // the character the story follows most is the protagonist, however much fighting they do
     let protag = null, pbest = -1e9;
     if (!hero) for (const c of liveChars()) { if (!c.mentions.size) continue; const sc = c.subj * 2.5 + c.mentions.size + (c.named ? 3 : 0) - c.first * 0.35; if (sc > pbest) { pbest = sc; protag = c; } }
@@ -475,6 +595,8 @@
         if (!c.mentions.size || (c === villain && !(heroPatName && c.aliases.has(heroPatName)))) continue;
         let sc = c.mentions.size + c.subj * 2.5 + (c.named ? 3 : 0) - c.first * 0.35 - hostileScore(c) * 1.2;
         if (heroPat && c.aliases.has(heroPat[1])) sc += 100;
+        if (hints.hero && (c.aliases.has(hints.hero) || String(c.name).toLowerCase() === hints.hero.toLowerCase() || [...c.aliases].some((a) => hints.hero.split(' ').includes(a)))) sc += 120;
+        if (hintSide.get(c) === 'enemy') sc -= 40;
         if (c.role && /^(hero|heroine|champion|adventurer|explorer|orphan)$/.test(c.roleWord)) sc += 4;
         if (c.kind === 'monster') sc -= 6;
         if (sc > bs) { bs = sc; best = c; }
@@ -646,6 +768,8 @@
         if (!MONSTERS[sg] || sg === t.l) return; // plural mentions only: singular ones are characters
         if (lookupAnimal(sg) || lookupRole(sg)) { if (!hostileCtx && !(lookupAnimal(sg) || {}).hostile && !(lookupRole(sg) || {}).hostile) return; }
         if (k + 1 < ts.length && MONSTERS[singular(ts[k + 1].l)]) return;
+        // "eyes like wet coins", "his eyes": a body part, not a swarm of floating eyes
+        if (/^(eye|eyes)$/.test(t.l) && ((k > 0 && /^(his|her|its|their|my|your|our|and|with|of|two|the)$/.test(ts[k - 1].l) && !(k > 1 && /^(giant|floating|evil|glowing|flying)$/.test(ts[k - 2].l))) || (ts[k + 1] && /^(like|of|were|was|glowed|glowing|shone|narrowed|widened)$/.test(ts[k + 1].l)))) return;
         const adj = k > 0 && MONSTER_ADJ.includes(ts[k - 1].l) ? ts[k - 1].l : '';
         const name = titleCase((adj && adj !== 'evil' ? adj + ' ' : '') + sg);
         const g = creatureMap.get(name) || { name, base: sg, n: 0, si };
@@ -657,6 +781,35 @@
       const mon = MONSTERS[g.base] || (an ? [an.body === 'bird' || an.body === 'bug' ? 'flyer' : 'beast', an.color] : ['humanoid', colorFor(g.name)]);
       return { name: g.name, base: g.base, archetype: mon[0], color: mon[1], first: g.si };
     });
+
+    // places and things the AI listed that the reader missed ("Shimmerdeep" = "crystal cave")
+    for (const h of hints.places || []) {
+      if (!h.name || places.some((p) => p.display === h.name || p.name === h.name)) continue;
+      const re = new RegExp(`\\b${reEsc(h.name)}\\b`);
+      const at = sentences.map((x, si) => (re.test(x) ? si : -1)).filter((x) => x >= 0);
+      if (!at.length) continue;
+      const hn = headNoun(h.is, (w) => lookupPlace(w) && lookupPlace(w).cat !== 'room') || headNoun(h.name, (w) => lookupPlace(w) && lookupPlace(w).cat !== 'room');
+      const def = hn ? lookupPlace(hn.word) : LIB.PLACES.ruins;
+      const p = addPlace('named:' + h.name.toLowerCase(), Object.assign({}, def, { name: h.name, display: h.name, word: hn ? hn.word : 'ruins' }));
+      for (const si of at) {
+        const m = sentences[si].match(re);
+        p.mentions.add(si); p.first = Math.min(p.first, si);
+        const bf = sentences[si].slice(Math.max(0, m.index - 30), m.index).toLowerCase();
+        if (sentPlaces[si].some((x) => x.p === p)) continue;
+        sentPlaces[si].push({ p, idx: m.index, move: /\b(to|into|toward|towards|reached|entered|onto|inside)\s+(the\s+)?$/.test(bf), scene: /\b(in|at|inside|near|within|by|through|across)\s+(the\s+)?$/.test(bf) });
+      }
+    }
+    for (const h of hints.items || []) {
+      if (!h.name || objects.some((o) => o.display === h.name || o.display.toLowerCase() === h.name.toLowerCase())) continue;
+      const re = new RegExp(`\\b${reEsc(h.name)}\\b`, 'i');
+      const at = sentences.map((x, si) => (re.test(x) ? si : -1)).filter((x) => x >= 0);
+      if (!at.length) continue;
+      const hn = headNoun(h.is + ' ' + h.name, (w) => lookupObject(w));
+      const def = hn ? lookupObject(hn.word) : { icon: 'box', color: colorFor(h.name) };
+      const o = { id: 'o' + objects.length, key: 'obj:' + h.name.toLowerCase(), word: hn ? hn.word : h.name.toLowerCase(), icon: def.icon, color: def.color, display: titleCase(h.name), count: 1, mentions: new Set(at), first: at[0], named: /^[A-Z]/.test(h.name) };
+      objects.push(o); objByKey.set(o.key, o);
+      for (const si of at) if (!sentObjects[si].includes(o)) sentObjects[si].push(o);
+    }
 
     // ---------- sentence annotations ----------
     const ann = sentences.map((s, si) => {
@@ -686,7 +839,8 @@
       });
       let hostile = 0; for (const t of ts) if (HOSTILE.has(t.l)) hostile++;
       let weather = null; for (const t of ts) if (LIB.WEATHER_WORDS[t.l]) weather = LIB.WEATHER_WORDS[t.l];
-      const cr = creatures.filter((c) => ts.some((t) => singular(t.l) === c.base));
+      const nameWords = new Set(liveChars().filter((c) => c.named).flatMap((c) => [...c.aliases].flatMap((a) => a.split(' '))));
+      const cr = creatures.filter((c) => ts.some((t) => singular(t.l) === c.base && !nameWords.has(t.w)));
       return { si, verbs, request, hostile, weather, chars: uniq([...sentChars[si]].map(live)), places: sentPlaces[si].sort((a, b) => a.idx - b.idx), objects: sentObjects[si], creatures: cr, quotes: [] };
     });
     // quotes and who said them
@@ -745,16 +899,20 @@
       const heroActs = subjectAt[si] === hero || (subjectAt[si] === null && /^(she|he|they)$/i.test((toks[si][0] || {}).l || ''));
       const mv = moves[moves.length - 1] || (si > 0 ? a.places.find((x) => x.scene && !x.quoted && x.p.cat !== 'landmark' && (x.idx < 25 || heroActs)) : null);
       const newPlace = mv ? mv.p : null;
-      if (newPlace && newPlace !== curPlace && cur.s.length) { beats.push(cur); cur = { s: [], place: newPlace, prev: curPlace, movedBy: si }; }
+      if (newPlace && newPlace !== curPlace && cur.s.length && !(blocks && blockOf[si] && blockOf[si].n < 9 && !heads.has(si))) { beats.push(cur); cur = { s: [], place: newPlace, prev: curPlace, movedBy: si }; }
       else if (newPlace && !cur.s.length) { cur.prev = cur.place || curPlace; cur.place = newPlace; cur.movedBy = si; }
       if (newPlace) curPlace = newPlace;
       const kind = actKind(si);
-      if (kind && cur.s.length && cur.kind && cur.kind !== kind && !(newPlace && newPlace !== curPlace)) { beats.push(cur); cur = { s: [], place: curPlace }; }
+      const inShort = blocks && blockOf[si] && blockOf[si].n < 9; // a short written chapter stays one game chapter
+      if (heads.has(si) && cur.s.length) { beats.push(cur); cur = { s: [], place: curPlace }; }
+      if (heads.has(si)) { cur.title = heads.get(si); cur.headed = true; if (newPlace) { cur.place = newPlace; cur.movedBy = si; } }
+      if (!inShort && kind && cur.s.length && cur.kind && cur.kind !== kind && !(newPlace && newPlace !== curPlace)) { beats.push(cur); cur = { s: [], place: curPlace }; }
       if (kind && !cur.kind) cur.kind = kind;
       if (!cur.place) cur.place = curPlace;
       cur.s.push(si);
       const strong = a.verbs.has('fight') || a.verbs.has('rescue') || a.verbs.has('give') || (a.verbs.has('find') && a.objects.length);
-      if (cur.s.length >= maxLen || (strong && cur.s.length >= Math.max(2, maxLen - 1) && si < N - 1)) { beats.push(cur); cur = { s: [], place: curPlace }; }
+      const cutLen = blocks ? (blockOf[si] && blockOf[si].n < 9 ? 1e9 : Math.max(6, Math.ceil(blockOf[si].n / Math.ceil(blockOf[si].n / 10)))) : maxLen;
+      if (cur.s.length >= cutLen || (!blocks && strong && cur.s.length >= Math.max(2, maxLen - 1) && si < N - 1)) { beats.push(cur); cur = { s: [], place: curPlace }; }
     }
     if (cur.s.length) beats.push(cur);
     while (beats.length > 14) {
@@ -806,7 +964,8 @@
           else consider({ type: 'use', verb: vt ? vt.l : 'use', item: a.objects[0] || null, prop: 'table' }, 5, si);
         }
         const qsp = a.quotes.find((q) => q.speaker && !q.speaker.isHero);
-        if ((a.verbs.has('talk') || qsp) && others.length) consider({ type: 'talk', char: qsp ? qsp.speaker : others[0] }, 4, si);
+        const sj = subjectAt[si] && !subjectAt[si].isHero && others.includes(subjectAt[si]) ? subjectAt[si] : null;
+        if ((a.verbs.has('talk') || qsp) && others.length) consider({ type: 'talk', char: qsp ? qsp.speaker : sj || others.find((c) => c !== villain) || others[0] }, 4, si);
         if (others.length) consider({ type: 'talk', char: others[0] }, 2.5, si);
         if (a.verbs.has('sleep')) consider({ type: 'use', verb: 'rest', prop: 'bed' }, 2, si);
         const mv = a.places.find((x) => x.move);
@@ -892,10 +1051,23 @@
     // ---------- narration ----------
     const narr = (s) => (pov === 'first' ? toSecondPerson(s) : s);
     let weather = null;
+    const mainCast = new Set(liveChars().filter((c) => !c.isHero).sort((a, b) => b.mentions.size - a.mentions.size).slice(0, 4));
+    const weight = (si, b) => {
+      const a = ann[si];
+      let v = 0;
+      if (si === b.obj.si) v += 20;
+      if (si === b.s[0]) v += 3;
+      if (a.quotes.length) v += 3;
+      v += a.chars.filter((c) => mainCast.has(c) || c === villain).length * 1.5;
+      v += Math.min(3, a.hostile) + (a.verbs.size ? 1 : 0) + (a.objects.length ? 1 : 0) + (a.places.some((x) => x.move) ? 1.5 : 0);
+      return v - sentences[si].length / 400;
+    };
     for (const b of beats) {
       const ai = Math.max(0, b.s.indexOf(b.obj.si));
-      b.intro = b.s.slice(0, ai).map((si) => narr(sentences[si]));
-      b.outro = b.s.slice(ai).map((si) => narr(sentences[si]));
+      let shown = b.s;
+      if (b.s.length > 8) { const keep = new Set(b.s.slice().sort((x, y) => weight(y, b) - weight(x, b)).slice(0, 7)); shown = b.s.filter((si) => keep.has(si)); b.full = b.s.map((si) => narr(sentences[si])); }
+      b.intro = shown.filter((si) => b.s.indexOf(si) < ai).map((si) => narr(sentences[si]));
+      b.outro = shown.filter((si) => b.s.indexOf(si) >= ai).map((si) => narr(sentences[si]));
       if (b.synthetic) { b.intro = []; b.outro = []; b.chars = [b.obj.char].filter(Boolean); }
       for (const si of b.s) if (ann[si].weather) weather = ann[si].weather;
       b.weather = weather;
@@ -945,7 +1117,7 @@
       if (o.needFind) obj.needFind = true;
       if (o.taunt) obj.taunt = true;
       if ((o.type === 'talk' || o.type === 'give' || o.type === 'receive' || o.type === 'rescue' || o.type === 'boss') && !obj.char) { obj.type = 'inspect'; }
-      const base = { i, place: b.place.id, obj, intro: b.intro, outro: b.outro, chars: b.chars.map((c) => idMap.get(c)).filter(Boolean), objects: b.objects.map((x) => x.id), weather: b.weather, danger: b.danger, reward: (b.reward || []).map((x) => x.id), carry: (b.carry || []).map((x) => x.id) };
+      const base = { i, title: b.title || null, full: b.full || null, place: b.place.id, obj, intro: b.intro, outro: b.outro, chars: b.chars.map((c) => idMap.get(c)).filter(Boolean), objects: b.objects.map((x) => x.id), weather: b.weather, danger: b.danger, reward: (b.reward || []).map((x) => x.id), carry: (b.carry || []).map((x) => x.id) };
       if (o.multi && o.multi.length >= 2 && o.item) {
         // "collect the three cores from the Reactor, the Hangar and the Vault" -> one stop per place
         return o.multi.map((pl, k) => Object.assign({}, base, { place: pl.id, obj: { type: 'find', item: o.item.id, place: pl.id, part: k + 1, parts: o.multi.length }, intro: k === 0 ? base.intro : [], outro: k === o.multi.length - 1 ? base.outro : [], reward: k === o.multi.length - 1 ? base.reward : [] }));
@@ -965,8 +1137,11 @@
       armors: T.armors, potion: T.potion, currency: T.currency,
       difficulty: /\b(easy|cozy|cosy|kids?|children|gentle|peaceful|bedtime)\b/.test(lowerAll) ? 1 : /\b(hard|brutal|difficult|deadly|nightmare|hardcore)\b/.test(lowerAll) ? 3 : 2,
     };
-    S.title = titleLine || makeTitle(rng, S);
-    S.ending = outBeats.length ? outBeats[outBeats.length - 1].outro.slice(-2).join(' ') : '';
+    S.title = hints.title || titleLine || makeTitle(rng, S);
+    S.ending = hints.ending || (outBeats.length ? outBeats[outBeats.length - 1].outro.slice(-2).join(' ') : '');
+    usedChars.forEach((c, i) => { if (c.hintLines) outChars[i].lines = c.hintLines.slice(0, 3); });
+    if (opts.original && fold(String(opts.original).replace(/\r/g, '').trim()) !== raw) S.original = String(opts.original).slice(0, 80000);
+    if (opts.ai) S.ai = opts.ai;
     S.sideQuests = buildSideQuests(S, rng, T);
     S.stats = { sentences: N, characters: outChars.length, places: outPlaces.length, objects: outObjects.length, chapters: outBeats.length };
     return S;
@@ -989,6 +1164,87 @@
     if (/once upon a time|happily ever after|fairy ?tale/.test(lower)) { scores.fantasy += 2; scores.whimsy += 1; }
     const ranked = THEME_KEYS.slice().sort((a, b) => scores[b] - scores[a]);
     return scores[ranked[0]] > 0 ? ranked[0] : rng.pick(['fantasy', 'fantasy', 'whimsy', 'countryside', 'modern', 'pirate', 'scifi', 'jungle', 'ice', 'desert', 'undead', 'swamp', 'alien', 'wasteland', 'city', 'fire']);
+  }
+
+  // words the library has never heard of ("axolotl", "zeppelin", "Kyoto"), so the web module can look them up
+  const COMMON = new Set(('time times day days night nights morning evening afternoon week weeks month months year years hour hours minute minutes moment moments ' +
+    'way ways thing things stuff kind kinds sort type types lot lots bit bits part parts piece pieces side sides end ends edge middle center centre top bottom front back corner ' +
+    'life lives world worlds people person man men woman women boy boys girl girls kid kids child baby family friend friends group crowd team everyone someone ' +
+    'head heads hand hands arm arms leg legs foot feet eye eyes face faces ear ears nose mouth teeth tooth hair heart mind body voice voices name names ' +
+    'story stories word words idea ideas plan plans help trouble problem problems question questions answer answers reason chance power powers secret secrets truth lie lies ' +
+    'dream dreams wish wishes fear fears hope love joy luck danger noise noises sound sounds smell taste color colour colors shape size place places area areas land lands ' +
+    'water air ground floor wall walls door doors window windows roof sky light lights dark darkness shadow shadows sun moon stars star wind rain snow fire ice storm ' +
+    'way path trail journey adventure quest mission task job work money gold silver home house room rooms bed table chair food meal breakfast lunch dinner ' +
+    'game games fun music song songs dance party gift gifts present surprise news message letter note sign signs mark marks line lines number numbers ' +
+    'school class lesson lessons test homework book books page pages picture pictures photo photos phone call calls car cars bus bike train road street ' +
+    'tree trees grass flower flowers leaf leaves rock rocks stone stones sand dirt mud hill hills river lake sea ocean beach island mountain forest woods field fields garden ' +
+    'animal animals creature creatures monster monsters beast beasts bird birds fish dog dogs cat cats horse horses ' +
+    'king queen prince princess knight wizard witch dragon castle tower village town city kingdom realm ' +
+    'step steps turn turns rest start finish beginning ending battle fight war attack attacks escape rescue answer ' +
+    'courage strength speed skill skills magic spell spells curse curses treasure treasures prize reward rewards ' +
+    'something nothing everything anything everybody nobody somebody anybody ' +
+    'others other another each both either neither lot plenty half rest whole while ').split(/\s+/).filter(Boolean));
+  const PLACE_PREP = new Set(['in', 'to', 'from', 'at', 'near', 'toward', 'towards', 'visited', 'reached', 'into', 'across', 'beyond', 'on']);
+  // with { all: true } it lists every meaningful noun, known or not (Wikipedia is the library)
+  // everyday describing words: never worth looking up
+  const PLAIN_ADJ = new Set('good bad great little big small new old young long short high low right left nice best better worse worst true false real whole same different other own next last first only main full empty open closed sure free ready hard soft easy quick slow fast kind brave wise clever strong weak rich poor safe warm cold hot cool quiet loud strange wild gentle fierce proud north south east west northern southern eastern western middle certain special perfect simple plain huge tiny giant gruff stern grim tall wide narrow deep shallow thick thin heavy light bright dim pale dark rough smooth sharp dull sweet sour bitter fresh rotten clean dirty wet dry busy lazy angry happy sad scared afraid hungry tired sick dead alive lonely famous secret hidden broken lost ancient modern magic magical mighty humble noble royal evil wicked holy cursed haunted golden silver wooden stone iron'.split(' '));
+  // small words that are never things: pronouns, helpers, linking words, amounts, common past tenses
+  const NOT_THINGS = new Set(('i me my mine you your yours he him his she her hers it its we us our ours they them their theirs who whom whose which what that this these those there here ' +
+    'can could will would shall should may might must ought dare need used ' +
+    'about above across after against along among around before behind below beneath beside besides between beyond despite during except inside near outside past since through throughout till toward towards until unto upon within without ' +
+    'because although though unless whether whereas once twice anyway anyhow somehow again away back home together alone ahead apart aside forward forwards backward backwards upstairs downstairs everywhere somewhere anywhere nowhere already soon later now often always never sometimes ever enough almost nearly maybe perhaps instead meanwhile otherwise rather indeed else ' +
+    'more most less least much many few several some any all both each every either neither none half couple dozen hundred hundreds thousand thousands million millions ' +
+    'first second third fourth fifth sixth seventh eighth ninth tenth last next another other others ' +
+    'longer shorter bigger smaller older younger faster slower higher lower further farther ' +
+    'said told sold held built bought brought caught taught thought fought found made paid laid led fed fled bled met kept slept swept wept left felt dealt meant sent spent lent bent lost shot got forgot hid bit lit sat spat stood understood struck stuck swung flung hung rang sang sank drank swam began ran came became gave forgave ate saw drew grew knew threw flew blew wore tore swore bore broke spoke woke chose froze rode wrote drove rose shook took stole fell hit put cut shut let set quit heard dug won spun slid crept leapt knelt dove went done gone seen known shown grown thrown flown drawn worn torn sworn born broken spoken woken chosen frozen ridden written driven risen shaken taken stolen fallen begun sung sunk drunk swum').split(/\s+/));
+  function unknownWords(text, max, o = {}) {
+    const found = new Map();
+    const sents = splitSentences(fold(String(text || '')).replace(/^#+.*$/gm, ''));
+    // names of people are not things to look up: "said Odile", "Odile said", "Odile's shop", "named Odile"
+    const people = new Set(o.skip || []);
+    const SAYS = /^(said|says|asked|asks|replied|replies|shouted|shouts|whispered|whispers|cried|cries|told|tells|answered|answers|yelled|yells|called|calls|laughed|laughs|smiled|smiles|nodded|nods)$/;
+    sents.forEach((s) => { const ts = tokenize(s); ts.forEach((t, k) => { if (!/^[A-Z][a-z]/.test(t.w) || STOP.has(t.w)) return; if (t.poss || (ts[k + 1] && SAYS.test(ts[k + 1].l)) || (ts[k - 1] && SAYS.test(ts[k - 1].l))) people.add(t.w); }); });
+    const plainAdj = (l) => !!(LIB.HAIR[l] || LIB.AGE_WORDS[l] || LIB.SIZE_WORDS[l] || LIB.MOOD_WORDS[l] || PLACE_ADJ.has(l) || OBJ_ADJ.has(l));
+    const known = (l) => !!((!o.all && (lookupRole(l) || lookupAnimal(l) || lookupPlace(l) || lookupObject(l) || MONSTERS[l] || MONSTERS[singular(l)])) || VERB_OF[l] || plainAdj(l) || FUNC.has(l) || DETS.has(l) || NUMS[l] || COMMON.has(l) || COMMON.has(singular(l)) || LIB.COLORS[l] || LIB.WEATHER_WORDS[l]);
+    sents.forEach((s, si) => {
+      const ts = tokenize(stripQuotes(s));
+      ts.forEach((t, k) => {
+        const l = t.l;
+        if (l.length < 4 || !/^[a-z][a-z-]*$/.test(l) || known(l) || NOT_THINGS.has(l)) return;
+        if (/(ly|ing|ed|ness|ment|tion|sion|ity|ism|ful|less|ous|ive|able|ible|est|ish|ward|wards)$/.test(l) || /(ing|ness|ment|tion|sion)$/.test(singular(l))) return;
+        const capd = /^[A-Z]/.test(t.w);
+        if (capd && people.has(t.w)) return;
+        // "the gruff old sailor": the AI marked these as describing words
+        if (!capd && ((o.mods && o.mods.has(l)) || PLAIN_ADJ.has(l))) return;
+        let ok = false;
+        if (capd) {
+          // a proper name after "in / to / from …" is probably a place: "to Kyoto", "from Mars"
+          if (k > 0 && PLACE_PREP.has(ts[k - 1].l) && !STOP.has(t.w)) ok = true;
+          if (k > 1 && ts[k - 1].l === 'the' && PLACE_PREP.has(ts[k - 2].l) && !STOP.has(t.w)) ok = true;
+        } else {
+          // a noun after "a / the / my / two …", maybe with adjectives in between: "the pink axolotl"
+          let extra = 0;
+          for (let j = k - 1; j >= Math.max(0, k - 4); j--) {
+            const p = ts[j];
+            // "a black feather, longer than…": a comma or a full stop ends the noun phrase
+            if (/[,;:.!?()"“”]/.test(s.slice(p.i + p.w.length, ts[j + 1].i))) break;
+            if (DETS.has(p.l) || NUMS[p.l] || p.poss) { ok = true; break; }
+            if (isAdjective(p.l) || LIB.COLORS[p.l] || OBJ_ADJ.has(p.l) || PLACE_ADJ.has(p.l) || MONSTER_ADJ.includes(p.l)) continue;
+            // one plain word in between is fine: "her pet axolotl", "a baby quokka"
+            if (extra++ === 0 && /^[a-z]+$/.test(p.w) && !FUNC.has(p.l) && !VERB_OF[p.l] && singular(p.l) === p.l) continue;
+            break;
+          }
+          // "ate tacos", "collected seashells": a bare plural right after a verb
+          if (!ok && k > 0 && singular(l) !== l && (VERB_OF[ts[k - 1].l] || /ed$/.test(ts[k - 1].l) || /^(ate|eat|eats|saw|see|sees|ate|made|make|makes|grew|grow|love|loved|loves|like|liked|likes)$/.test(ts[k - 1].l))) ok = true;
+        }
+        if (!ok) return;
+        const key = capd ? t.w : singular(l);
+        const f = found.get(key) || { word: key, proper: capd, n: 0, first: si };
+        f.n++;
+        found.set(key, f);
+      });
+    });
+    return [...found.values()].sort((a, b) => b.n - a.n || a.first - b.first).slice(0, max || 20);
   }
 
   function harvestSeeds(premise) {
@@ -1219,5 +1475,5 @@
   }
   function fromSeed(seed) { return analyze('', seed >>> 0); }
 
-  RPG.Story = { analyze, fromText, fromSeed, pluralize, singular, titleCase, splitSentences, colorFor, toSecondPerson, cap, tokenize };
+  RPG.Story = { analyze, fromText, fromSeed, pluralize, singular, titleCase, splitSentences, colorFor, toSecondPerson, cap, tokenize, unknownWords, fold };
 })();

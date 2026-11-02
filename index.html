@@ -42,6 +42,18 @@ Example: Once upon a time a little girl named Rosa lived in a village by the for
           <button id="clear" class="btn ghost" type="button">Clear</button>
         </div>
         <div id="status" class="status" hidden></div>
+        <div class="smart">
+          <label class="row"><input type="checkbox" id="ai-on"> <b>AI reads my story</b> <span class="meta">runs in your browser, no key</span></label>
+          <div class="sub">
+            <select id="ai-size" aria-label="AI model size">
+              <option value="better">Better understanding (about 2 GB download, once)</option>
+              <option value="faster">Faster (about 1 GB download, once)</option>
+            </select>
+            <span id="ai-status" class="meta"></span>
+          </div>
+          <label class="row"><input type="checkbox" id="web-on"> <b>Use Wikipedia as the library</b> <span class="meta">looks up the people, places and things in your story</span></label>
+          <p class="fine">The AI downloads to your browser the first time and then runs on your own computer, so your story never leaves it. Wikipedia only receives single words like "axolotl" or "lighthouse". Untick both to play fully offline with the built-in reader.</p>
+        </div>
       </section>
 
       <section class="how">
@@ -49,7 +61,7 @@ Example: Once upon a time a little girl named Rosa lived in a village by the for
         <div><span class="n">2</span><b>Step inside it</b><p>Your people become characters who say your lines. Your places become a world you can walk through, rooms and all. Every event becomes a chapter you play.</p></div>
         <div><span class="n">3</span><b>Live it out</b><p>Fetch, deliver, rescue, explore and fight your way to your own ending. Saves in your browser. Share your story as a link.</p></div>
       </section>
-      <footer>Tale Forge · no account, no API key, nothing to install · works offline in your browser · keyboard and touch controls</footer>
+      <footer>Tale Forge · no account, no API key, nothing to install · library: Wikipedia (CC BY-SA) · AI: runs in your browser · keyboard and touch controls</footer>
     </div>
   </main>
 
@@ -82,11 +94,22 @@ Example: Once upon a time a little girl named Rosa lived in a village by the for
     <div id="toasts" class="toastbox" aria-live="polite"></div>
   </div>
   <div id="hometoasts" class="toastbox" aria-live="polite"></div>
+  <div id="working" class="hidden" role="dialog" aria-live="polite">
+    <div class="box">
+      <div class="kicker">Building your story</div>
+      <div id="work-step">Starting…</div>
+      <div class="bar"><div id="work-bar"></div></div>
+      <div id="work-detail" class="meta"></div>
+      <button id="work-cancel" class="btn ghost small" type="button">Skip the AI and use the quick reader</button>
+    </div>
+  </div>
 
   <script src="rng.js"></script>
   <script src="themes.js"></script>
   <script src="library.js"></script>
   <script src="story.js"></script>
+  <script src="web.js"></script>
+  <script src="ai.js"></script>
   <script src="worldgen.js"></script>
   <script src="art.js"></script>
   <script src="game.js"></script>

@@ -52,9 +52,27 @@
       $('random').onclick = () => this.forge('');
       $('continue').onclick = () => { const d = RPG.Game.readSave(); if (d) RPG.Game.start(d.spec, d.prog, d.text); };
       $('clear').onclick = () => { story.value = ''; this.count(); story.focus(); };
+      // reading settings: the in-browser AI and Wikipedia
+      const aiOn = $('ai-on'), webOn = $('web-on'), size = $('ai-size');
+      aiOn.checked = RPG.AI.isOn(); webOn.checked = RPG.Web.isOn(); size.value = RPG.AI.size();
+      aiOn.onchange = () => { RPG.AI.setOn(aiOn.checked); this.aiStatus(); };
+      webOn.onchange = () => RPG.Web.setOn(webOn.checked);
+      size.onchange = () => { RPG.AI.setSize(size.value); this.aiStatus(); };
+      $('work-cancel').onclick = () => { this.cancelAI = true; $('work-detail').textContent = 'Switching to the quick reader…'; if (this.cancelHook) this.cancelHook(); };
+      this.aiStatus();
       this.count();
       this.refreshHome();
       this.loadFromHash();
+    },
+    async aiStatus() {
+      const st = $('ai-status');
+      $('ai-size').parentElement.classList.toggle('off', !$('ai-on').checked);
+      if (!$('ai-on').checked) { st.textContent = 'off: the quick built-in reader is used'; st.className = 'meta'; return; }
+      const chk = await RPG.AI.check();
+      this.aiOK = chk.ok;
+      if (!chk.ok) { st.textContent = chk.reason + ' The quick reader will be used.'; st.className = 'meta bad'; return; }
+      st.textContent = RPG.AI.wasReady() ? 'ready on this device' : 'downloads the first time you play';
+      st.className = 'meta ok';
     },
     count() {
       const n = $('story').value.length;
@@ -74,27 +92,73 @@
       $('status').hidden = true;
       $('forge').disabled = $('random').disabled = false;
     },
-    forge(text) {
+    async forge(text) {
       const existing = RPG.Game.readSave();
       if (existing && !existing.prog.ended && existing.prog.time > 60 && !confirm(`Start a new story? Your saved game "${existing.spec.title}" will be replaced.`)) return;
       const st = $('status');
-      st.hidden = false; st.className = 'status'; st.textContent = 'Reading your story…';
+      st.hidden = true;
       $('forge').disabled = $('random').disabled = true;
-      // let the browser paint the status line before the (quick) heavy lifting
-      setTimeout(() => {
-        let spec;
-        try { spec = RPG.Story.fromText(text); }
-        catch (e) { console.error(e); st.className = 'status err'; st.textContent = 'Something in that text tripped up the story reader. Try rewording a sentence or two.'; $('forge').disabled = $('random').disabled = false; return; }
+      const clean = String(text || '').trim();
+      const useAI = clean && $('ai-on').checked && this.aiOK !== false && (clean.match(/\S+/g) || []).length >= 25;
+      const useWeb = $('web-on').checked && navigator.onLine !== false;
+      const work = $('working'), step = (t, f, d) => { $('work-step').textContent = t; if (f !== undefined) $('work-bar').style.width = Math.round(Math.max(0, Math.min(1, f)) * 100) + '%'; if (d !== undefined) $('work-detail').textContent = d; };
+      this.cancelAI = false;
+      // "Skip the AI" works right away, even in the middle of a download or a long reply
+      let cancelNow;
+      const cancelled = new Promise((r) => { cancelNow = r; });
+      this.cancelHook = () => { cancelNow(); try { if (RPG.AI.engine && RPG.AI.engine.interruptGenerate) RPG.AI.engine.interruptGenerate(); } catch (e) {} };
+      const race = (p) => { p.catch(() => {}); return Promise.race([p, cancelled.then(() => { throw new Error('cancelled'); })]); };
+      let read = null, learned = {};
+      try {
+        if (useAI || useWeb) { work.classList.remove('hidden'); step('Getting ready…', 0.02, ''); $('work-cancel').hidden = !useAI; }
+        if (useAI) {
+          try {
+            await race(RPG.AI.load((f, t) => { if (this.cancelAI) return; step(RPG.AI.wasReady() ? 'Waking up the AI…' : 'Downloading the AI to your browser (first time only)…', f * 0.5, t.replace(/\[.*?\]\s*/g, '').slice(0, 140)); }));
+            if (!this.cancelAI) read = await race(RPG.AI.read(clean, (t, f) => { if (!this.cancelAI) step(t, 0.5 + f * 0.35, 'The AI is working out the plot, the chapters and who\'s who.'); }, () => this.cancelAI));
+          } catch (e) {
+            console.warn('AI reader unavailable:', e);
+            read = null;
+            if (!this.cancelAI) { step('The AI could not run here, so the quick reader takes over.', 0.5, String(e.message || e).slice(0, 160)); await new Promise((r) => setTimeout(r, 1200)); }
+          }
+        }
+        if (useWeb) {
+          step('Looking things up on Wikipedia…', 0.88, 'People, places and things from your story.');
+          const r = await RPG.Web.learn(read ? read.script : clean, { hints: read && read.hints });
+          learned = r.learned || {};
+          if (r.failed) step('Wikipedia could not be reached, so the built-in library is used.', 0.9, '');
+          RPG.Web.apply(learned);
+        }
+        step('Building your world…', 0.95, '');
+        await new Promise((r) => setTimeout(r, 30));
+        const spec = this.build(clean, read, learned);
         RPG.Game.deleteSave();
         history.replaceState(null, '', location.pathname + location.search);
-        try { RPG.Game.start(spec, null, text); }
-        catch (e) { console.error(e); st.className = 'status err'; st.textContent = 'Could not build a world from that story. Try adding a little more detail.'; $('forge').disabled = $('random').disabled = false; }
-      }, 30);
+        work.classList.add('hidden');
+        RPG.Game.start(spec, null, clean);
+      } catch (e) {
+        console.error(e);
+        work.classList.add('hidden');
+        st.hidden = false; st.className = 'status err'; st.textContent = 'Something in that text tripped up the story reader. Try rewording a sentence or two.';
+      }
+      $('forge').disabled = $('random').disabled = false;
+      this.aiStatus();
+    },
+    // the story blueprint: from the AI's script when there is one, otherwise from the text itself
+    build(text, read, learned) {
+      let spec;
+      if (read && read.script) spec = RPG.Story.analyze(read.script, RPG.hashString(text), { hints: read.hints, original: text, ai: { model: read.model } });
+      else spec = RPG.Story.fromText(text);
+      spec.learned = learned || {};
+      if (read) spec.aiRead = { script: read.script, hints: read.hints, model: read.model };
+      return spec;
     },
     async share(text, spec) {
       let payload;
       if (!text) payload = { r: spec.seed };
       else payload = { t: text };
+      // the AI's reading and the Wikipedia lookups travel with the link, so friends get the same game
+      if (text && spec.aiRead) payload.a = spec.aiRead;
+      if (spec.learned && Object.keys(spec.learned).length) payload.k = spec.learned;
       let url;
       try { url = `${location.origin}${location.pathname}#g=${await pack(payload)}`; }
       catch (e) { toast('Could not build a share link in this browser.', 'warn'); return; }
@@ -107,8 +171,10 @@
       try {
         const p = await unpack(m[1]);
         let spec;
+        if (p.k) RPG.Web.apply(p.k);
         if (p.r !== undefined) spec = RPG.Story.fromSeed(p.r >>> 0);
-        else { $('story').value = p.t || ''; this.count(); spec = RPG.Story.fromText(p.t || ''); }
+        else { $('story').value = p.t || ''; this.count(); spec = this.build(p.t || '', p.a ? Object.assign({ model: 'shared' }, p.a) : null, p.k || {});
+        if (p.a) spec.ai = Object.assign({}, spec.ai, { shared: true }); }
         $('shared').hidden = false;
         $('shared-title').textContent = spec.title;
         $('play-shared').onclick = () => { RPG.Game.deleteSave(); RPG.Game.start(spec, null, p.t || ''); };

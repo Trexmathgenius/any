@@ -290,6 +290,8 @@
   function start(spec, progress, sourceText) {
     G.spec = spec;
     G.sourceText = sourceText || '';
+    if (spec.learned && RPG.Web) RPG.Web.apply(spec.learned);
+    G.facts = RPG.Web ? RPG.Web.facts(spec.learned) : [];
     G.world = RPG.WorldGen.build(spec);
     G.theme = THEMES[spec.theme];
     G.prog = progress || newProgress(spec);
@@ -316,7 +318,8 @@
       const S = spec;
       const who = S.chars.filter((c) => !c.generated).slice(0, 6).map((c) => esc(c.display)).join(', ');
       const where = S.places.filter((p) => !p.generated).slice(0, 6).map((p) => esc(p.display)).join(', ');
-      const src = S.source === 'random' ? 'A brand-new story, invented just now.' : S.source === 'prompt' ? `Grown from your idea: “${esc(S.premise)}”.` : `Built from your ${S.stats.sentences} sentences.`;
+      const nWiki = Object.keys(S.learned || {}).length;
+      const src = (S.ai ? `${S.ai.shared ? 'Read by the AI in the browser of whoever shared it' : 'Read by the AI in your browser'}${S.ai.model && S.ai.model !== 'shared' ? ' (' + esc(String(S.ai.model).replace(/-q4f.*$/, '').replace(/-/g, ' ')) + ')' : ''}. ` : '') + (S.source === 'random' ? 'A brand-new story, invented just now.' : S.source === 'prompt' ? `Grown from your idea: “${esc(S.premise)}”.` : S.ai ? `${S.beats.length} chapters from your story.` : `Built from your ${S.stats.sentences} sentences.`) + (nWiki ? ` ${nWiki} things looked up on Wikipedia.` : '');
       UI.menu(S.title, [{ label: '▶ Step into the story', fn: () => { UI.closeMenu(); G.prog.started = true; Story.activate(G.prog.beat || 0); } }], {
         closable: false, wide: true,
         body: `<p class="src">${src}</p><div class="introgrid"><div><b>You are</b> ${esc(S.hero.display === 'You' ? 'yourself' : S.hero.display)}${S.hero.roleDisplay ? ', ' + esc(S.hero.roleDisplay.toLowerCase()) : ''}</div><div><b>Chapters</b> ${S.beats.length}</div>${who ? `<div><b>People</b> ${who}</div>` : ''}${where ? `<div><b>Places</b> ${where}</div>` : ''}</div>${controlsHTML()}`,
@@ -374,6 +377,7 @@
   const Story = {
     cur() { return G.spec.beats[G.prog.beat] || null; },
     title(b) {
+      if (b.title) return b.title;
       const o = b.obj, S = G.spec;
       const ch = o.char && charById(o.char), it = o.item && objById(o.item);
       switch (o.type) {
@@ -1373,6 +1377,8 @@
     if (now.length && k < 2) now.slice(0, 2).forEach((q) => say(q.text));
     else if (past.length && k % 2 === 0) say(past[(k / 2) % past.length | 0].text);
     else if (ments.length) say(speakAbout(c, ments[k % ments.length].text));
+    if (c.lines && c.lines.length && k % 2 === 1) say(c.lines[((k - 1) / 2 | 0) % c.lines.length]);
+    if (G.facts.length && k % 3 === 2 && pages.length < 3) say(factLine());
     if (P.ended) say(fill(pick(LIB.LINES.react.after), c));
     else if (b) say(hintLine(c));
     if (pages.length < 3) say(fill(pick(LIB.LINES.idle[c.role] || LIB.LINES.idle[c.job] || LIB.LINES.idle[c.voice] || LIB.LINES.idle.any), c));
@@ -1468,9 +1474,19 @@
     Sound.play('potion'); saveGame(true);
     UI.toast(o.d === DT.CAMPFIRE ? 'You rest by the fire. Fully healed. Game saved.' : 'You lie down for a moment. Fully healed. Game saved.', 'good');
   }
+  // something true about a thing in the story, from Wikipedia ("Did you know? ...")
+  function factLine(prefer) {
+    const b = Story.cur();
+    const near = b ? new Set([...(b.objects || []).map((id) => (objById(id) || {}).word), (placeById(b.place) || {}).word].filter(Boolean)) : new Set();
+    const pool = G.facts.filter((f) => near.has(f.word));
+    const f = prefer || pick(pool.length ? pool : G.facts);
+    if (!f) return '';
+    const lead = pick(['Did you know? ', 'Fun fact: ', 'I read somewhere that ', 'Here\'s something true: ']);
+    return lead + (lead === 'I read somewhere that ' ? f.fact.replace(/^(The|A|An)\s/, (m) => m.toLowerCase()) : f.fact);
+  }
   function storySoFar() {
     const P = G.prog, out = [];
-    G.spec.beats.forEach((b, i) => { if (i < P.beat || P.ended) out.push(...b.intro, ...b.outro); else if (i === P.beat) out.push(...b.intro); });
+    G.spec.beats.forEach((b, i) => { if (i < P.beat || P.ended) out.push(...(b.full || [...b.intro, ...b.outro])); else if (i === P.beat) out.push(...b.intro); });
     return out.length ? out : G.spec.beats[0].intro.concat(G.spec.beats[0].outro);
   }
   function lookAt(o) {
@@ -1478,9 +1494,10 @@
     const sent = sents[(o.tx * 7 + o.ty * 13) % sents.length] || '';
     const d = o.d;
     let text;
-    if (d === DT.BOOKSHELF) text = sent ? `You pull a book off the shelf. One page reads: "${sent}"` : 'Dusty books, full of old stories.';
+    const fact = G.facts.length ? G.facts[(o.tx * 5 + o.ty * 11) % G.facts.length] : null;
+    if (d === DT.BOOKSHELF) text = fact && (o.tx + o.ty) % 2 ? `You pull out a book about ${fact.display.toLowerCase()}. It says: "${fact.fact}"` : sent ? `You pull a book off the shelf. One page reads: "${sent}"` : 'Dusty books, full of old stories.';
     else if (d === DT.BLACKBOARD) text = `Someone has written on the board: "${Story.objectiveText() || S.title}"`;
-    else if (d === DT.COMPUTER) text = `The screen glows. A message is open: "${sent || S.title}"`;
+    else if (d === DT.COMPUTER) text = fact ? `The screen shows an encyclopedia page about ${fact.display}: "${fact.fact}"` : `The screen glows. A message is open: "${sent || S.title}"`;
     else if (d === DT.WELL) text = 'You peer into the well. Your reflection looks back at you, ready for whatever comes next.';
     else if (d === DT.STATUE) { const who = G.chars.filter((c) => !c.hostile && !c.generated).sort((a, b) => b.mentions.length - a.mentions.length)[0]; text = who ? `A statue of ${who.display}. Someone left flowers at its feet.` : 'A weathered statue. It looks a little like you.'; }
     else if (d === DT.ALTAR) { const s = st(); s.hp = Math.min(s.maxHp, s.hp + Math.round(s.maxHp * 0.25)); Sound.play('potion'); text = 'The altar hums softly. A warm calm washes over you. (Healed a little.)'; }
@@ -1567,11 +1584,14 @@
     const mins = Math.floor(P.time / 60);
     const body = `<p class="obj">▶ ${esc(Story.objectiveText())}</p><h4>Chapters</h4><ul>${chapters}</ul>
       <h4>The story so far</h4><div class="tale">${tale}</div>
+      ${G.facts.length ? `<h4>Things in this story (from Wikipedia)</h4><div class="tale codex">${G.facts.slice(0, 30).map((f) => `<p><b>${esc(f.display)}</b>${f.source && normQ(f.source) !== normQ(f.display) ? ` <i>(${esc(f.source)})</i>` : ''}: ${esc(f.fact)} <a href="https://en.wikipedia.org/wiki/${encodeURIComponent(String(f.source || f.display).replace(/ /g, '_'))}" target="_blank" rel="noopener">more</a></p>`).join('')}<p class="meta">Text from Wikipedia, CC BY-SA.</p></div>` : ''}
       ${met ? `<h4>People you've met</h4><div class="stats">${met}</div>` : ''}
       ${inv ? `<h4>Carrying</h4><div class="stats">${inv}</div>` : ''}
       ${side ? `<h4>Side quests</h4><ul>${side}</ul>` : ''}
       <h4>${esc(S.hero.display === 'You' ? 'You' : S.hero.name)}</h4><div class="stats"><span>Level ${s.level}</span><span>HP ${Math.ceil(s.hp)}/${s.maxHp}</span><span>ATK ${Math.round(atkOf())}</span><span>DEF ${Math.round(defOf())}</span><span>${esc(S.weapons[s.wTier])}</span><span>${esc(S.armors[s.aTier])}</span><span>${s.gold} ${esc(S.currency)}</span><span>${mins} min</span><span>${P.kills} foes defeated</span></div>`;
-    UI.menu('Journal', [{ label: 'Close', fn: () => UI.closeMenu() }], { body, wide: true, sub: S.title });
+    const items = [{ label: 'Close', fn: () => UI.closeMenu() }];
+    if (S.original) items.unshift({ label: 'Read your original story', fn: () => UI.menu('Your story', [{ label: 'Back', fn: journal }], { wide: true, sub: S.title, body: `<div class="tale" style="max-height:60vh">${S.original.split(/\n\s*\n/).map((p) => `<p>${esc(p)}</p>`).join('')}</div>` }) });
+    UI.menu('Journal', items, { body, wide: true, sub: S.title });
     setTimeout(() => { const t = document.querySelector('#menu-body .tale'); if (t) t.scrollTop = t.scrollHeight; }, 0);
   }
   function showEnding() {

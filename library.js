@@ -284,6 +284,7 @@
     ['snake snakes serpent serpents', { body: 'snake', color: '#5a8a3a', size: 1.0, sound: 'Hssss...', display: 'Snake', hostile: 1 }],
     ['spider spiders', { body: 'spider', color: '#3a3a3a', size: 1.0, sound: '*clicks*', display: 'Spider', hostile: 1 }],
     ['bird birds sparrow robin bluebird dove pigeon', { body: 'bird', color: '#6a8ac0', size: 0.6, sound: 'Tweet!', display: 'Bird' }],
+    ['gull gulls seagull seagulls', { body: 'bird', color: '#e8e8ec', size: 0.8, sound: 'Kree!', display: 'Gull' }],
     ['owl owls', { body: 'bird', color: '#8a6a4a', size: 0.8, sound: 'Hoo-hoo.', display: 'Owl', wise: true }],
     ['crow crows raven ravens', { body: 'bird', color: '#2a2a32', size: 0.7, sound: 'Caw!', display: 'Crow' }],
     ['parrot parrots', { body: 'bird', color: '#3ac04a', size: 0.7, sound: 'Squawk!', display: 'Parrot' }],

@@ -155,3 +155,29 @@ body.touch.playing #touch { display: block; }
 .tb.map { right: 66px; top: 150px; }
 .tb.men { right: 14px; top: 150px; }
 @media (max-width: 620px) { .tb.map, .tb.men { top: 122px; } }
+
+/* reading settings */
+.smart { margin-top: 14px; border-top: 1px dashed var(--line); padding-top: 12px; display: flex; flex-direction: column; gap: 8px; }
+.smart .row { display: grid; grid-template-columns: 20px 1fr; column-gap: 10px; row-gap: 2px; align-items: center; cursor: pointer; }
+.smart .row .meta { grid-column: 2; }
+.smart .row b { font-weight: normal; color: var(--text); }
+.smart input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--gold); }
+.smart .sub { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-left: 30px; }
+@media (max-width: 600px) { .smart select { width: 100%; font-size: 16px; } }
+.smart select { background: #0b0912; color: var(--text); border: 2px solid var(--line); border-radius: 6px; padding: 6px 8px; font: inherit; font-size: 19px; max-width: 100%; }
+.smart .sub.off { opacity: 0.45; pointer-events: none; }
+#ai-status.ok { color: var(--good); }
+#ai-status.bad { color: #ffb0a0; }
+/* progress while the AI reads */
+#working { position: fixed; inset: 0; background: rgba(6, 5, 12, 0.86); z-index: 60; display: flex; align-items: center; justify-content: center; padding: 16px; }
+#working .box { width: min(520px, 100%); background: var(--card, #16121f); border: 2px solid var(--line); border-radius: 12px; padding: 20px; display: flex; flex-direction: column; gap: 10px; }
+#work-step { font-size: 24px; color: #fff3cf; }
+#working .bar { height: 12px; background: #241e3a; border-radius: 6px; overflow: hidden; }
+#work-bar { height: 100%; width: 0; background: var(--gold); transition: width 0.3s; }
+#work-detail { min-height: 1.2em; word-break: break-word; }
+#working .btn { align-self: flex-start; }
+#menu-body .codex p { margin: 4px 0; }
+#menu-body .codex b { color: var(--gold); }
+#menu-body .src a { color: var(--gold); }
+#menu-body .codex a { color: var(--accent, #8fd3ff); font-size: 0.85em; margin-left: 4px; }
+#menu-body .codex i { opacity: 0.7; }
